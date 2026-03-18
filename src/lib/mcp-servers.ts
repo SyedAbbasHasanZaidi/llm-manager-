@@ -1,0 +1,143 @@
+import type { MCPServer } from "@/types";
+
+export const DEFAULT_MCP_SERVERS: MCPServer[] = [
+  // ── Web
+  {
+    id: "brave-search",
+    name: "Brave Search",
+    description: "Real-time web search via the Brave Search API",
+    icon: "🔍",
+    category: "web",
+    transport: "http",
+    status: "disconnected",
+    tools: [
+      { name: "brave_search",  description: "Search the web",           inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
+      { name: "brave_news",    description: "Search recent news",       inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
+    ],
+    enabled: false,
+    requiresKey: true,
+    keyLabel: "Brave Search API key",
+  },
+  {
+    id: "fetch",
+    name: "Fetch URL",
+    description: "Retrieve and parse content from any URL",
+    icon: "🌐",
+    category: "web",
+    transport: "http",
+    status: "disconnected",
+    tools: [
+      { name: "fetch_url",     description: "Fetch page content",       inputSchema: { type: "object", properties: { url: { type: "string" } }, required: ["url"] } },
+      { name: "fetch_links",   description: "Extract links from page",  inputSchema: { type: "object", properties: { url: { type: "string" } }, required: ["url"] } },
+    ],
+    enabled: false,
+    requiresKey: false,
+  },
+  // ── Dev
+  {
+    id: "github",
+    name: "GitHub",
+    description: "Read repositories, issues, PRs, and file contents",
+    icon: "🐙",
+    category: "dev",
+    transport: "http",
+    status: "disconnected",
+    tools: [
+      { name: "github_search_repos", description: "Search repositories",    inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
+      { name: "github_read_file",    description: "Read a file in a repo",  inputSchema: { type: "object", properties: { owner: { type: "string" }, repo: { type: "string" }, path: { type: "string" } }, required: ["owner","repo","path"] } },
+      { name: "github_list_issues",  description: "List open issues",       inputSchema: { type: "object", properties: { owner: { type: "string" }, repo: { type: "string" } }, required: ["owner","repo"] } },
+    ],
+    enabled: false,
+    requiresKey: true,
+    keyLabel: "GitHub Personal Access Token",
+  },
+  {
+    id: "filesystem",
+    name: "Filesystem",
+    description: "Read and write files on the local filesystem (sandboxed)",
+    icon: "📁",
+    category: "dev",
+    transport: "stdio",
+    status: "disconnected",
+    tools: [
+      { name: "read_file",     description: "Read a file",              inputSchema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } },
+      { name: "write_file",    description: "Write to a file",          inputSchema: { type: "object", properties: { path: { type: "string" }, content: { type: "string" } }, required: ["path","content"] } },
+      { name: "list_dir",      description: "List directory contents",  inputSchema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } },
+    ],
+    enabled: false,
+    requiresKey: false,
+  },
+  // ── Data
+  {
+    id: "postgres",
+    name: "PostgreSQL",
+    description: "Run SQL queries and inspect your database schema",
+    icon: "🗃️",
+    category: "data",
+    transport: "stdio",
+    status: "disconnected",
+    tools: [
+      { name: "pg_query",      description: "Run a SELECT query",       inputSchema: { type: "object", properties: { sql: { type: "string" } }, required: ["sql"] } },
+      { name: "pg_schema",     description: "Inspect table schemas",    inputSchema: { type: "object", properties: { table: { type: "string" } } } },
+    ],
+    enabled: false,
+    requiresKey: true,
+    keyLabel: "PostgreSQL connection string",
+  },
+  {
+    id: "sqlite",
+    name: "SQLite",
+    description: "Query local SQLite database files",
+    icon: "💾",
+    category: "data",
+    transport: "stdio",
+    status: "disconnected",
+    tools: [
+      { name: "sqlite_query",  description: "Run a SQL query",          inputSchema: { type: "object", properties: { sql: { type: "string" }, db: { type: "string" } }, required: ["sql","db"] } },
+    ],
+    enabled: false,
+    requiresKey: false,
+  },
+  // ── Productivity
+  {
+    id: "notion",
+    name: "Notion",
+    description: "Read and write Notion pages and databases",
+    icon: "📋",
+    category: "productivity",
+    transport: "http",
+    status: "disconnected",
+    tools: [
+      { name: "notion_search",      description: "Search pages",             inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
+      { name: "notion_create_page", description: "Create a new page",        inputSchema: { type: "object", properties: { title: { type: "string" }, content: { type: "string" } }, required: ["title"] } },
+      { name: "notion_read_page",   description: "Read page content",        inputSchema: { type: "object", properties: { pageId: { type: "string" } }, required: ["pageId"] } },
+    ],
+    enabled: false,
+    requiresKey: true,
+    keyLabel: "Notion Integration Token",
+  },
+  {
+    id: "slack",
+    name: "Slack",
+    description: "Post messages and read channel history",
+    icon: "💬",
+    category: "productivity",
+    transport: "http",
+    status: "disconnected",
+    tools: [
+      { name: "slack_post",         description: "Post a message",           inputSchema: { type: "object", properties: { channel: { type: "string" }, text: { type: "string" } }, required: ["channel","text"] } },
+      { name: "slack_read",         description: "Read recent messages",     inputSchema: { type: "object", properties: { channel: { type: "string" } }, required: ["channel"] } },
+    ],
+    enabled: false,
+    requiresKey: true,
+    keyLabel: "Slack Bot Token",
+  },
+];
+
+export const MCP_CATEGORY_LABELS: Record<string, string> = {
+  web:          "Web",
+  dev:          "Developer Tools",
+  data:         "Data & Databases",
+  productivity: "Productivity",
+  custom:       "Custom",
+};
