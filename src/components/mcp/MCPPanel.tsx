@@ -205,13 +205,17 @@ function MCPServerCard({
                   <label className="block text-xs mb-1.5" style={{ color: "#6b7280" }}>
                     {server.keyLabel ?? "API Key"}
                   </label>
+                  {/* Hidden honeypot fields absorb browser autofill */}
+                  <input type="text" name="prevent_autofill_username" autoComplete="username" style={{ position: "absolute", opacity: 0, height: 0, width: 0, overflow: "hidden", pointerEvents: "none" }} tabIndex={-1} aria-hidden="true" />
+                  <input type="password" name="prevent_autofill_password" autoComplete="current-password" style={{ position: "absolute", opacity: 0, height: 0, width: 0, overflow: "hidden", pointerEvents: "none" }} tabIndex={-1} aria-hidden="true" />
                   <div style={{ position: "relative" }}>
                     <input
                       type={showKey ? "text" : "password"}
                       value={keyInput}
                       onChange={e => setKeyInput(e.target.value)}
                       placeholder="Paste your key..."
-                      autoComplete="off"
+                      name="mcp_server_token"
+                      autoComplete="one-time-code"
                       onClick={e => e.stopPropagation()}
                       style={{ width: "100%", padding: "6px 30px 6px 10px", borderRadius: 6, background: "#2f2f2f", border: "1px solid #3f3f3f", color: "#ececec", fontSize: 12, outline: "none", boxSizing: "border-box" }}
                     />

@@ -140,11 +140,15 @@ export function ModelSelector() {
             🔒 Your key is encrypted and stored securely in your account.
           </div>
           <label className="block text-xs font-medium mb-1.5" style={{ color: "#8e8ea0" }}>API Key</label>
+          {/* Hidden honeypot fields absorb browser autofill so the real input stays clean */}
+          <input type="text" name="prevent_autofill_username" autoComplete="username" style={{ position: "absolute", opacity: 0, height: 0, width: 0, overflow: "hidden", pointerEvents: "none" }} tabIndex={-1} aria-hidden="true" />
+          <input type="password" name="prevent_autofill_password" autoComplete="current-password" style={{ position: "absolute", opacity: 0, height: 0, width: 0, overflow: "hidden", pointerEvents: "none" }} tabIndex={-1} aria-hidden="true" />
           <div style={{ position: "relative" }}>
             <input
               type={showKey ? "text" : "password"} value={keyInput} onChange={e => setKeyInput(e.target.value)}
               placeholder={meta.keyPlaceholder} autoFocus
-              autoComplete="off"
+              name="llm_provider_token"
+              autoComplete="one-time-code"
               onKeyDown={e => e.key === "Enter" && saveKey()}
               style={{ width: "100%", padding: "9px 36px 9px 12px", borderRadius: 8, background: "#2f2f2f", border: `1px solid ${keyError ? "#ef4444" : "#3f3f3f"}`, color: "#ececec", fontSize: 13, outline: "none", marginBottom: keyError ? 4 : 16, boxSizing: "border-box" }}
             />
@@ -208,7 +212,8 @@ export function ModelSelector() {
         <div className="flex items-center gap-2 rounded-lg px-3 py-2" style={{ background: "#2f2f2f", border: "1px solid #3f3f3f" }}>
           <span style={{ color: "#4b5563", fontSize: 13 }}>🔍</span>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search models…" autoFocus
-            autoComplete="off"
+            name="model_filter"
+            autoComplete="one-time-code"
             style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: "#ececec", fontSize: 13 }} />
           {search && <button onClick={() => setSearch("")} style={{ color: "#4b5563", background: "none", border: "none", cursor: "pointer" }}>✕</button>}
         </div>
