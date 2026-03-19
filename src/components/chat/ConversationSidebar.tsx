@@ -61,6 +61,7 @@ export function ConversationSidebar({ onNewChat }: Props) {
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search chats"
+            autoComplete="off"
             style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: "var(--text-1)", fontSize: 13 }}
           />
         </div>

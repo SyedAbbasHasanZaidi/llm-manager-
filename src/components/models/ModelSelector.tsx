@@ -1,6 +1,20 @@
 "use client";
 import { useState, useMemo } from "react";
 import { useAppStore, useConnectedProviders } from "@/store";
+
+// ── Eye toggle icons (inline SVG to avoid extra deps) ────────────────────────
+const EyeIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+);
+const EyeOffIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+    <line x1="1" y1="1" x2="23" y2="23" />
+  </svg>
+);
 import { AVAILABLE_MODELS, PROVIDER_META, PROVIDER_ORDER, groupModelsByProvider } from "@/lib/models";
 import { Panel, PanelHeader, PanelBody } from "@/components/ui/Panel";
 import { Toggle } from "@/components/ui/Toggle";
@@ -35,6 +49,7 @@ export function ModelSelector() {
   const [addKeyFor,   setAddKeyFor]   = useState<Provider | null>(null);
   const [keyInput,    setKeyInput]    = useState("");
   const [keyError,    setKeyError]    = useState("");
+  const [showKey,     setShowKey]     = useState(false);
 
   const filtered = useMemo(() => {
     let models = AVAILABLE_MODELS;
@@ -125,12 +140,24 @@ export function ModelSelector() {
             🔒 Your key is encrypted and stored securely in your account.
           </div>
           <label className="block text-xs font-medium mb-1.5" style={{ color: "#8e8ea0" }}>API Key</label>
-          <input
-            type="password" value={keyInput} onChange={e => setKeyInput(e.target.value)}
-            placeholder={meta.keyPlaceholder} autoFocus
-            onKeyDown={e => e.key === "Enter" && saveKey()}
-            style={{ width: "100%", padding: "9px 12px", borderRadius: 8, background: "#2f2f2f", border: `1px solid ${keyError ? "#ef4444" : "#3f3f3f"}`, color: "#ececec", fontSize: 13, outline: "none", marginBottom: keyError ? 4 : 16 }}
-          />
+          <div style={{ position: "relative" }}>
+            <input
+              type={showKey ? "text" : "password"} value={keyInput} onChange={e => setKeyInput(e.target.value)}
+              placeholder={meta.keyPlaceholder} autoFocus
+              autoComplete="off"
+              onKeyDown={e => e.key === "Enter" && saveKey()}
+              style={{ width: "100%", padding: "9px 36px 9px 12px", borderRadius: 8, background: "#2f2f2f", border: `1px solid ${keyError ? "#ef4444" : "#3f3f3f"}`, color: "#ececec", fontSize: 13, outline: "none", marginBottom: keyError ? 4 : 16, boxSizing: "border-box" }}
+            />
+            <button
+              type="button"
+              onClick={() => setShowKey(v => !v)}
+              style={{ position: "absolute", right: 8, top: 8, background: "none", border: "none", color: "#6b7280", cursor: "pointer", padding: 0, display: "flex", alignItems: "center" }}
+              tabIndex={-1}
+              title={showKey ? "Hide key" : "Show key"}
+            >
+              {showKey ? <EyeOffIcon /> : <EyeIcon />}
+            </button>
+          </div>
           {keyError && <p className="text-xs mb-3" style={{ color: "#f87171" }}>⚠ {keyError}</p>}
           <div className="mb-4">
             <p className="text-xs font-medium mb-2" style={{ color: "#4b5563", letterSpacing: "0.04em" }}>UNLOCKS</p>
@@ -181,6 +208,7 @@ export function ModelSelector() {
         <div className="flex items-center gap-2 rounded-lg px-3 py-2" style={{ background: "#2f2f2f", border: "1px solid #3f3f3f" }}>
           <span style={{ color: "#4b5563", fontSize: 13 }}>🔍</span>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search models…" autoFocus
+            autoComplete="off"
             style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: "#ececec", fontSize: 13 }} />
           {search && <button onClick={() => setSearch("")} style={{ color: "#4b5563", background: "none", border: "none", cursor: "pointer" }}>✕</button>}
         </div>

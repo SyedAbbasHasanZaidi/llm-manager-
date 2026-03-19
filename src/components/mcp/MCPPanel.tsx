@@ -7,6 +7,19 @@ import { Toggle } from "@/components/ui/Toggle";
 import { MCP_CATEGORY_LABELS } from "@/lib/mcp-servers";
 import type { MCPServer } from "@/types";
 
+const EyeIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+);
+const EyeOffIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+    <line x1="1" y1="1" x2="23" y2="23" />
+  </svg>
+);
+
 export function MCPPanel() {
   const { servers, toggleServer, addCustomServer, saveServerKey, deleteServerKey, deleteServer } = useMCP();
   const { setUI }                   = useAppStore();
@@ -77,6 +90,7 @@ export function MCPPanel() {
                 <label className="block text-xs mb-1 capitalize" style={{ color: "#4b5563" }}>{field}</label>
                 <input value={customForm[field]} onChange={e => setCustomForm(p => ({ ...p, [field]: e.target.value }))}
                   placeholder={field === "url" ? "https://..." : field === "icon" ? "🔧" : ""}
+                  autoComplete="off"
                   style={{ width: "100%", padding: "6px 10px", borderRadius: 6, background: "#2f2f2f", border: "1px solid #3f3f3f", color: "#ececec", fontSize: 12, outline: "none" }} />
               </div>
             ))}
@@ -126,6 +140,7 @@ function MCPServerCard({
   const [keyInput, setKeyInput] = useState("");
   const [saving, setSaving]     = useState(false);
   const [showKeyInput, setShowKeyInput] = useState(false);
+  const [showKey, setShowKey]   = useState(false);
 
   const handleSaveKey = async () => {
     if (!keyInput.trim()) return;
@@ -190,14 +205,26 @@ function MCPServerCard({
                   <label className="block text-xs mb-1.5" style={{ color: "#6b7280" }}>
                     {server.keyLabel ?? "API Key"}
                   </label>
-                  <input
-                    type="password"
-                    value={keyInput}
-                    onChange={e => setKeyInput(e.target.value)}
-                    placeholder="Paste your key..."
-                    onClick={e => e.stopPropagation()}
-                    style={{ width: "100%", padding: "6px 10px", borderRadius: 6, background: "#2f2f2f", border: "1px solid #3f3f3f", color: "#ececec", fontSize: 12, outline: "none" }}
-                  />
+                  <div style={{ position: "relative" }}>
+                    <input
+                      type={showKey ? "text" : "password"}
+                      value={keyInput}
+                      onChange={e => setKeyInput(e.target.value)}
+                      placeholder="Paste your key..."
+                      autoComplete="off"
+                      onClick={e => e.stopPropagation()}
+                      style={{ width: "100%", padding: "6px 30px 6px 10px", borderRadius: 6, background: "#2f2f2f", border: "1px solid #3f3f3f", color: "#ececec", fontSize: 12, outline: "none", boxSizing: "border-box" }}
+                    />
+                    <button
+                      type="button"
+                      onClick={e => { e.stopPropagation(); setShowKey(v => !v); }}
+                      style={{ position: "absolute", right: 6, top: 5, background: "none", border: "none", color: "#6b7280", cursor: "pointer", padding: 0, display: "flex", alignItems: "center" }}
+                      tabIndex={-1}
+                      title={showKey ? "Hide key" : "Show key"}
+                    >
+                      {showKey ? <EyeOffIcon /> : <EyeIcon />}
+                    </button>
+                  </div>
                   <div className="flex gap-2 mt-2">
                     <button
                       onClick={(e) => { e.stopPropagation(); setShowKeyInput(false); setKeyInput(""); }}

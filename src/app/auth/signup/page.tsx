@@ -51,6 +51,7 @@ export default function SignupPage() {
             <input
               type="text" value={username} onChange={e => setUsername(e.target.value)}
               required autoFocus placeholder="your_username"
+              autoComplete="username"
               style={{ width: "100%", padding: "10px 12px", borderRadius: 8, background: "#333", border: "1px solid #3f3f3f", color: "#ececec", fontSize: 14, outline: "none", boxSizing: "border-box" }}
             />
           </div>
@@ -60,6 +61,7 @@ export default function SignupPage() {
             <input
               type="email" value={email} onChange={e => setEmail(e.target.value)}
               required placeholder="you@example.com"
+              autoComplete="email"
               style={{ width: "100%", padding: "10px 12px", borderRadius: 8, background: "#333", border: "1px solid #3f3f3f", color: "#ececec", fontSize: 14, outline: "none", boxSizing: "border-box" }}
             />
           </div>
@@ -69,6 +71,7 @@ export default function SignupPage() {
             <input
               type="password" value={password} onChange={e => setPassword(e.target.value)}
               required placeholder="Min. 6 characters" minLength={6}
+              autoComplete="new-password"
               style={{ width: "100%", padding: "10px 12px", borderRadius: 8, background: "#333", border: "1px solid #3f3f3f", color: "#ececec", fontSize: 14, outline: "none", boxSizing: "border-box" }}
             />
           </div>

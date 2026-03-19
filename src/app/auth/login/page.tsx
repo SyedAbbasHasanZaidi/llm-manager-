@@ -42,6 +42,7 @@ export default function LoginPage() {
             <input
               type="email" value={email} onChange={e => setEmail(e.target.value)}
               required autoFocus placeholder="you@example.com"
+              autoComplete="email"
               style={{ width: "100%", padding: "10px 12px", borderRadius: 8, background: "#333", border: "1px solid #3f3f3f", color: "#ececec", fontSize: 14, outline: "none", boxSizing: "border-box" }}
             />
           </div>
@@ -51,6 +52,7 @@ export default function LoginPage() {
             <input
               type="password" value={password} onChange={e => setPassword(e.target.value)}
               required placeholder="••••••••"
+              autoComplete="current-password"
               style={{ width: "100%", padding: "10px 12px", borderRadius: 8, background: "#333", border: "1px solid #3f3f3f", color: "#ececec", fontSize: 14, outline: "none", boxSizing: "border-box" }}
             />
           </div>
