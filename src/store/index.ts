@@ -67,6 +67,10 @@ interface AppStore {
   // Theme
   theme:    "dark" | "light" | "mono";
   setTheme: (t: "dark" | "light" | "mono") => void;
+
+  // Context compression (transient — not persisted)
+  compressionNotice:    string | null;
+  setCompressionNotice: (notice: string | null) => void;
 }
 
 // ─── Store implementation ─────────────────────────────────────────────────────
@@ -210,6 +214,10 @@ export const useAppStore = create<AppStore>()(
         // ── Theme ─────────────────────────────────────────────────────────────
         theme:    "dark",
         setTheme: (t) => set({ theme: t }),
+
+        // ── Context compression (transient) ──────────────────────────────────
+        compressionNotice:    null,
+        setCompressionNotice: (notice) => set({ compressionNotice: notice }),
       }),
       {
         name: "llm-manager-v1",

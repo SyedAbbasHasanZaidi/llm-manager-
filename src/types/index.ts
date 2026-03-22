@@ -55,6 +55,15 @@ export interface Conversation {
 
 // ─── MCP ─────────────────────────────────────────────────────────────────────
 
+// MCPRoute maps a tool name to the custom MCP server that handles it.
+// Built at request time from the user's enabled MCPServer list in useChat.ts
+// and forwarded to the API route so executeTool() can dispatch custom calls.
+export interface MCPRoute {
+  toolName:  string;  // Exact tool name as registered on the MCP server
+  serverId:  string;  // Matches MCPServer.id — used to look up the credential
+  serverUrl: string;  // HTTP/SSE base URL of the custom MCP server
+}
+
 export type MCPServerStatus = "connected" | "connecting" | "disconnected" | "error";
 export type MCPTransport = "stdio" | "sse" | "http";
 export type MCPCategory = "web" | "dev" | "data" | "productivity" | "custom";
@@ -89,6 +98,7 @@ export type StreamEventType =
   | "tool_start"
   | "tool_result"
   | "message_done"
+  | "compression_notice"
   | "error";
 
 export interface StreamEvent {
@@ -104,6 +114,9 @@ export interface ChatRequest {
   messages: Array<{ role: MessageRole; content: string }>;
   tools?: MCPTool[];
   stream?: boolean;
+  // Routing table built client-side from enabled custom MCP servers.
+  // executeTool() uses this to dispatch unknown tools to the right server.
+  mcpToolRoutes?: MCPRoute[];
 }
 
 export interface ChatResponse {

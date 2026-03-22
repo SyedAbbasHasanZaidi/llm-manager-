@@ -142,6 +142,9 @@ export function ChatWindow() {
         </div>
       </div>
 
+      {/* Compression notice banner */}
+      <CompressionBanner />
+
       {/* Messages */}
       <div className="flex-1 overflow-y-auto">
         {!conversation || conversation.messages.length === 0 ? (
@@ -234,6 +237,31 @@ async function signOut() {
   const supabase = createClient();
   await supabase.auth.signOut();
   window.location.href = "/auth/login";
+}
+
+function CompressionBanner() {
+  const notice = useAppStore(s => s.compressionNotice);
+  const dismiss = useAppStore(s => s.setCompressionNotice);
+
+  if (!notice) return null;
+
+  return (
+    <div
+      className="flex items-center justify-between px-4 py-2 text-xs flex-shrink-0"
+      style={{ background: "var(--bg-elevated)", color: "var(--text-3)", borderBottom: "1px solid var(--border)" }}
+    >
+      <span>{notice}</span>
+      <button
+        onClick={() => dismiss(null)}
+        className="ml-3 px-1.5 rounded transition-colors"
+        style={{ background: "transparent", border: "none", color: "var(--text-4)", cursor: "pointer", fontSize: 14, lineHeight: 1 }}
+        onMouseEnter={e => (e.currentTarget.style.color = "var(--text-2)")}
+        onMouseLeave={e => (e.currentTarget.style.color = "var(--text-4)")}
+      >
+        ×
+      </button>
+    </div>
+  );
 }
 
 function EmptyState({ onSend, hasKey, onOpenModels }: { onSend: (s: string) => void; hasKey: boolean; onOpenModels: () => void }) {

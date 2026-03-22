@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { PROVIDER_META } from "@/lib/models";
 import { toDbProvider } from "@/lib/keys";
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
+import { sanitizeErrorResponse } from "@/lib/security";
 
 // Maps DB enum value → app provider name
 const DB_TO_APP: Record<string, string> = { google_ai: "google" };
@@ -16,7 +18,7 @@ function getPassphrase(): string {
 // ── GET /api/keys ─────────────────────────────────────────────────────────────
 // Returns which providers the authenticated user has saved keys for.
 // Never returns actual key values to the client.
-export async function GET() {
+export async function GET(req: NextRequest) {
   const supabase = await createClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
 
@@ -24,17 +26,29 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data, error } = await supabase
-    .from("api_keys")
-    .select("provider")
-    .eq("user_id", user.id);
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  // Rate limiting
+  const limitResult = await rateLimit(req, "keys-get", RATE_LIMITS.keys, user.id);
+  if (!limitResult.success) {
+    return limitResult.response;
   }
 
-  const connectedProviders = (data ?? []).map(row => fromDbProvider(row.provider as string));
-  return NextResponse.json({ connectedProviders });
+  try {
+    const { data, error } = await supabase
+      .from("api_keys")
+      .select("provider")
+      .eq("user_id", user.id);
+
+    if (error) {
+      const sanitized = sanitizeErrorResponse(error);
+      return NextResponse.json({ error: sanitized.message }, { status: sanitized.statusCode });
+    }
+
+    const connectedProviders = (data ?? []).map(row => fromDbProvider(row.provider as string));
+    return NextResponse.json({ connectedProviders });
+  } catch (err) {
+    const sanitized = sanitizeErrorResponse(err);
+    return NextResponse.json({ error: sanitized.message }, { status: sanitized.statusCode });
+  }
 }
 
 // ── POST /api/keys ────────────────────────────────────────────────────────────
@@ -45,6 +59,12 @@ export async function POST(req: NextRequest) {
 
   if (authError || !user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Rate limiting
+  const limitResult = await rateLimit(req, "keys-post", RATE_LIMITS.keys, user.id);
+  if (!limitResult.success) {
+    return limitResult.response;
   }
 
   const { provider, key } = await req.json() as { provider: string; key: string };
@@ -75,19 +95,25 @@ export async function POST(req: NextRequest) {
     .eq("user_id", user.id)
     .eq("provider", dbProvider);
 
-  // Use the DB's built-in insert_api_key RPC (handles pgcrypto encryption)
-  const { error } = await supabase.rpc("insert_api_key", {
-    _user_id:    user.id,
-    _provider:   dbProvider,
-    _key:        trimmed,
-    _passphrase: passphrase,
-  });
+  try {
+    // Use the DB's built-in insert_api_key RPC (handles pgcrypto encryption)
+    const { error } = await supabase.rpc("insert_api_key", {
+      _user_id:    user.id,
+      _provider:   dbProvider,
+      _key:        trimmed,
+      _passphrase: passphrase,
+    });
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      const sanitized = sanitizeErrorResponse(error);
+      return NextResponse.json({ error: sanitized.message }, { status: sanitized.statusCode });
+    }
+
+    return NextResponse.json({ valid: true, provider });
+  } catch (err) {
+    const sanitized = sanitizeErrorResponse(err);
+    return NextResponse.json({ error: sanitized.message }, { status: sanitized.statusCode });
   }
-
-  return NextResponse.json({ valid: true, provider });
 }
 
 // ── DELETE /api/keys?provider=xxx ────────────────────────────────────────────
@@ -99,20 +125,32 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Rate limiting
+  const limitResult = await rateLimit(req, "keys-delete", RATE_LIMITS.keys, user.id);
+  if (!limitResult.success) {
+    return limitResult.response;
+  }
+
   const provider = req.nextUrl.searchParams.get("provider");
   if (!provider) {
     return NextResponse.json({ error: "provider query param required" }, { status: 400 });
   }
 
-  const { error } = await supabase
-    .from("api_keys")
-    .delete()
-    .eq("user_id", user.id)
-    .eq("provider", toDbProvider(provider));
+  try {
+    const { error } = await supabase
+      .from("api_keys")
+      .delete()
+      .eq("user_id", user.id)
+      .eq("provider", toDbProvider(provider));
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      const sanitized = sanitizeErrorResponse(error);
+      return NextResponse.json({ error: sanitized.message }, { status: sanitized.statusCode });
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    const sanitized = sanitizeErrorResponse(err);
+    return NextResponse.json({ error: sanitized.message }, { status: sanitized.statusCode });
   }
-
-  return NextResponse.json({ ok: true });
 }

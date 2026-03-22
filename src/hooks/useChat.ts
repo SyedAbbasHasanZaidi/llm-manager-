@@ -1,6 +1,6 @@
 import { useCallback, useRef } from "react";
 import { useAppStore, useActiveConversation } from "@/store";
-import type { Message, ToolCall } from "@/types";
+import type { Message, ToolCall, MCPRoute } from "@/types";
 import { getModel } from "@/lib/models";
 import { estimateCost } from "@/lib/utils";
 import { autoTitle } from "@/lib/utils";
@@ -52,14 +52,29 @@ export function useChat(conversationId?: string) {
       .filter(m => !m.streaming)
       .map(m => ({ role: m.role, content: m.content }));
 
+    // Build routing table: for custom servers with a URL, map each tool to
+    // its serverId + serverUrl so the API route can forward the call.
+    // Built-in catalog servers (no url) are excluded — executeTool handles them.
+    const enabledServers = store.mcpServers.filter(s => s.enabled);
+    const mcpToolRoutes: MCPRoute[] = enabledServers
+      .filter(s => !!s.url)
+      .flatMap(s =>
+        s.tools.map(t => ({
+          toolName:  t.name,
+          serverId:  s.id,
+          serverUrl: s.url as string,
+        }))
+      );
+
     try {
       const res = await fetch("/api/chat", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({
-          model:    store.activeModelId,
-          messages: history,
-          tools:    store.mcpServers.filter(s => s.enabled).flatMap(s => s.tools),
+          model:         store.activeModelId,
+          messages:      history,
+          tools:         enabledServers.flatMap(s => s.tools),
+          mcpToolRoutes,
         }),
         signal: ctrl.signal,
       });
@@ -140,6 +155,11 @@ export function useChat(conversationId?: string) {
         store.addUsage(tokenCount, cost);
         break;
       }
+
+      case "compression_notice":
+        store.setCompressionNotice(event.payload as string);
+        setTimeout(() => store.setCompressionNotice(null), 8000);
+        break;
 
       case "error":
         store.updateMessage(cid, msgId, {

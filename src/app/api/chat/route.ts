@@ -2,6 +2,12 @@ import { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getDecryptedKey } from "@/lib/keys";
 import { getDecryptedMCPKey } from "@/lib/mcp-keys";
+import { compressContext } from "@/lib/context-compression";
+import { callCustomMCPTool } from "@/lib/mcp-client";
+import { validateSSRFUrl, sanitizeErrorResponse, sanitizeGitHubIdentifier, sanitizeGitHubPath } from "@/lib/security";
+import { AVAILABLE_MODELS } from "@/lib/models";
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
+import type { MCPRoute } from "@/types";
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import { GoogleGenerativeAI } from "@google/generative-ai";
@@ -48,16 +54,56 @@ export async function POST(req: NextRequest) {
     return new Response("Unauthorized", { status: 401 });
   }
 
+  // ── Rate limiting
+  const limitResult = await rateLimit(req, "chat", RATE_LIMITS.chat, user.id);
+  if (!limitResult.success) {
+    return limitResult.response;
+  }
+
   const body = await req.json();
-  const { model, messages, tools = [] } = body as {
-    model:    string;
-    messages: Array<{ role: string; content: string }>;
-    tools:    unknown[];
+  const { model, messages, tools = [], mcpToolRoutes = [] } = body as {
+    model:         string;
+    messages:      Array<{ role: string; content: string }>;
+    tools:         unknown[];
+    mcpToolRoutes: MCPRoute[];
   };
 
   if (!model || !messages?.length) {
     return new Response("Missing model or messages", { status: 400 });
   }
+
+  // Validate model is in allowed list (prevent premium model injection)
+  if (!AVAILABLE_MODELS.some(m => m.id === model)) {
+    return new Response("Invalid model ID", { status: 400 });
+  }
+
+  // Validate tools array: limit size and structure
+  if (!Array.isArray(tools)) {
+    return new Response("Invalid tools format", { status: 400 });
+  }
+  if (tools.length > 50) {
+    return new Response("Too many tools (max 50)", { status: 400 });
+  }
+
+  // Validate each tool has basic structure
+  for (const tool of tools) {
+    if (typeof tool !== "object" || tool === null) {
+      return new Response("Invalid tool structure", { status: 400 });
+    }
+    const t = tool as Record<string, unknown>;
+    if (typeof t.name !== "string" || !t.name) {
+      return new Response("Each tool must have a name", { status: 400 });
+    }
+    // Limit inputSchema size to prevent huge payloads
+    const schemaStr = JSON.stringify(t.inputSchema ?? {});
+    if (schemaStr.length > 10000) {
+      return new Response("Tool inputSchema too large", { status: 400 });
+    }
+  }
+
+  // ── Context compression — summarize older messages if over token budget
+  const compression = await compressContext({ messages, modelId: model, userId: user.id });
+  const compressedMessages = compression.messages;
 
   const provider = detectProvider(model);
 
@@ -68,17 +114,24 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Load MCP server credentials for tool execution
-  // Fetch user's enabled MCP servers and their keys for tool execution
+  // Fetch user's enabled MCP servers and their keys for tool execution.
+  // Keys are stored under two indices:
+  //   mcpKeys[srv.name.toLowerCase()] — used by built-in tool handlers (existing)
+  //   mcpKeyById[srv.id]              — used by callCustomMCPTool credential lookup
   const { data: mcpRows } = await supabase
     .from("mcp_servers")
     .select("id, name")
     .eq("user_id", user.id)
     .eq("enabled", true);
 
-  const mcpKeys: Record<string, string> = {};
+  const mcpKeys: Record<string, string>   = {};
+  const mcpKeyById: Record<string, string> = {};
   for (const srv of mcpRows ?? []) {
     const key = await getDecryptedMCPKey(srv.id, user.id);
-    if (key) mcpKeys[srv.name.toLowerCase()] = key;
+    if (key) {
+      mcpKeys[srv.name.toLowerCase()] = key;
+      mcpKeyById[srv.id]              = key;
+    }
   }
 
   // ── Set up SSE stream
@@ -89,22 +142,32 @@ export async function POST(req: NextRequest) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
       };
 
+      // Notify client if compression occurred
+      if (compression.wasCompressed) {
+        emit({
+          type: "compression_notice",
+          messageId: "",
+          payload: `Context compressed: ${compression.originalCount} messages summarized to ${compression.compressedCount}`,
+        });
+      }
+
       try {
         if (provider === "anthropic") {
-          await streamAnthropic({ model, messages, tools, apiKey, emit, mcpKeys });
+          await streamAnthropic({ model, messages: compressedMessages, tools, apiKey, emit, mcpKeys, mcpKeyById, mcpToolRoutes });
         } else if (provider === "openai") {
-          await streamOpenAI({ model, messages, tools, apiKey, emit, mcpKeys });
+          await streamOpenAI({ model, messages: compressedMessages, tools, apiKey, emit, mcpKeys, mcpKeyById, mcpToolRoutes });
         } else if (provider === "google") {
-          await streamGoogle({ model, messages, tools, apiKey, emit, mcpKeys });
+          await streamGoogle({ model, messages: compressedMessages, tools, apiKey, emit, mcpKeys, mcpKeyById, mcpToolRoutes });
         } else if (provider === "mistral") {
-          await streamMistral({ model, messages, tools, apiKey, emit, mcpKeys });
+          await streamMistral({ model, messages: compressedMessages, tools, apiKey, emit, mcpKeys, mcpKeyById, mcpToolRoutes });
         } else if (provider === "cohere") {
-          await streamCohere({ model, messages, tools, apiKey, emit, mcpKeys });
+          await streamCohere({ model, messages: compressedMessages, tools, apiKey, emit, mcpKeys, mcpKeyById, mcpToolRoutes });
         } else {
           emit({ type: "error", messageId: "", payload: `Unsupported provider: ${provider}` });
         }
       } catch (err: unknown) {
-        emit({ type: "error", messageId: "", payload: (err as Error).message });
+        const sanitized = sanitizeErrorResponse(err);
+        emit({ type: "error", messageId: "", payload: sanitized.message });
       } finally {
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         controller.close();
@@ -126,17 +189,19 @@ export async function POST(req: NextRequest) {
 type Emit = (data: object) => void;
 
 interface AdapterArgs {
-  model:    string;
-  messages: Array<{ role: string; content: string }>;
-  tools:    unknown[];
-  apiKey:   string;
-  emit:     Emit;
-  mcpKeys?: Record<string, string>;
+  model:          string;
+  messages:       Array<{ role: string; content: string }>;
+  tools:          unknown[];
+  apiKey:         string;
+  emit:           Emit;
+  mcpKeys?:       Record<string, string>;
+  mcpKeyById?:    Record<string, string>;
+  mcpToolRoutes?: MCPRoute[];
 }
 
 // ── Anthropic (with tool execution loop) ─────────────────────────────────────
 
-async function streamAnthropic({ model, messages, tools, apiKey, emit, mcpKeys }: AdapterArgs) {
+async function streamAnthropic({ model, messages, tools, apiKey, emit, mcpKeys, mcpKeyById, mcpToolRoutes }: AdapterArgs) {
   const client = new Anthropic({ apiKey });
 
   // Build message history for Anthropic format
@@ -213,7 +278,7 @@ async function streamAnthropic({ model, messages, tools, apiKey, emit, mcpKeys }
       emit({ type: "tool_start", messageId: "", payload: { id: tc.id, name: tc.name, input: tc.input } });
 
       const start = Date.now();
-      const result = await executeTool(tc.name, tc.input, mcpKeys ?? {});
+      const result = await executeTool(tc.name, tc.input, mcpKeys ?? {}, mcpKeyById ?? {}, mcpToolRoutes ?? []);
       const durationMs = Date.now() - start;
 
       emit({ type: "tool_result", messageId: "", payload: { id: tc.id, result, durationMs } });
@@ -236,7 +301,7 @@ async function streamAnthropic({ model, messages, tools, apiKey, emit, mcpKeys }
 
 // ── OpenAI (with tool execution loop) ────────────────────────────────────────
 
-async function streamOpenAI({ model, messages, tools, apiKey, emit, mcpKeys }: AdapterArgs) {
+async function streamOpenAI({ model, messages, tools, apiKey, emit, mcpKeys, mcpKeyById, mcpToolRoutes }: AdapterArgs) {
   const client = new OpenAI({ apiKey });
 
   let openaiMessages: OpenAI.ChatCompletionMessageParam[] =
@@ -309,7 +374,7 @@ async function streamOpenAI({ model, messages, tools, apiKey, emit, mcpKeys }: A
       emit({ type: "tool_start", messageId: lastId, payload: { id: tc.id, name: tc.name, input } });
 
       const start = Date.now();
-      const result = await executeTool(tc.name, input, mcpKeys ?? {});
+      const result = await executeTool(tc.name, input, mcpKeys ?? {}, mcpKeyById ?? {}, mcpToolRoutes ?? []);
       const durationMs = Date.now() - start;
 
       emit({ type: "tool_result", messageId: lastId, payload: { id: tc.id, result, durationMs } });
@@ -327,7 +392,7 @@ async function streamOpenAI({ model, messages, tools, apiKey, emit, mcpKeys }: A
 
 // ── Google (with tool execution loop) ────────────────────────────────────────
 
-async function streamGoogle({ model, messages, tools, apiKey, emit, mcpKeys }: AdapterArgs) {
+async function streamGoogle({ model, messages, tools, apiKey, emit, mcpKeys, mcpKeyById, mcpToolRoutes }: AdapterArgs) {
   const genAI    = new GoogleGenerativeAI(apiKey);
 
   // Convert MCP tool schemas to Google function declarations
@@ -392,7 +457,7 @@ async function streamGoogle({ model, messages, tools, apiKey, emit, mcpKeys }: A
       emit({ type: "tool_start", messageId: msgId, payload: { id: toolId, name: fc.name, input: fc.args } });
 
       const start = Date.now();
-      const result = await executeTool(fc.name, fc.args, mcpKeys ?? {});
+      const result = await executeTool(fc.name, fc.args, mcpKeys ?? {}, mcpKeyById ?? {}, mcpToolRoutes ?? []);
       const durationMs = Date.now() - start;
 
       emit({ type: "tool_result", messageId: msgId, payload: { id: toolId, result, durationMs } });
@@ -421,7 +486,7 @@ async function streamGoogle({ model, messages, tools, apiKey, emit, mcpKeys }: A
 
 // ── Mistral (with tool execution loop) ───────────────────────────────────────
 
-async function streamMistral({ model, messages, tools, apiKey, emit, mcpKeys }: AdapterArgs) {
+async function streamMistral({ model, messages, tools, apiKey, emit, mcpKeys, mcpKeyById, mcpToolRoutes }: AdapterArgs) {
   const client = new Mistral({ apiKey });
 
   // Convert tools to Mistral format
@@ -499,7 +564,7 @@ async function streamMistral({ model, messages, tools, apiKey, emit, mcpKeys }: 
       emit({ type: "tool_start", messageId: lastId, payload: { id: tc.id, name: tc.name, input } });
 
       const start = Date.now();
-      const result = await executeTool(tc.name, input, mcpKeys ?? {});
+      const result = await executeTool(tc.name, input, mcpKeys ?? {}, mcpKeyById ?? {}, mcpToolRoutes ?? []);
       const durationMs = Date.now() - start;
 
       emit({ type: "tool_result", messageId: lastId, payload: { id: tc.id, result, durationMs } });
@@ -518,7 +583,7 @@ async function streamMistral({ model, messages, tools, apiKey, emit, mcpKeys }: 
 
 // ── Cohere (with tool execution loop) ────────────────────────────────────────
 
-async function streamCohere({ model, messages, tools, apiKey, emit, mcpKeys }: AdapterArgs) {
+async function streamCohere({ model, messages, tools, apiKey, emit, mcpKeys, mcpKeyById, mcpToolRoutes }: AdapterArgs) {
   const { CohereClientV2 } = await import("cohere-ai");
   const client = new CohereClientV2({ token: apiKey });
 
@@ -590,7 +655,7 @@ async function streamCohere({ model, messages, tools, apiKey, emit, mcpKeys }: A
       emit({ type: "tool_start", messageId: msgId, payload: { id: tc.id, name: tc.name, input } });
 
       const start = Date.now();
-      const result = await executeTool(tc.name, input, mcpKeys ?? {});
+      const result = await executeTool(tc.name, input, mcpKeys ?? {}, mcpKeyById ?? {}, mcpToolRoutes ?? []);
       const durationMs = Date.now() - start;
 
       emit({ type: "tool_result", messageId: msgId, payload: { id: tc.id, result, durationMs } });
@@ -619,13 +684,22 @@ async function streamCohere({ model, messages, tools, apiKey, emit, mcpKeys }: A
 }
 
 // ─── Tool execution ──────────────────────────────────────────────────────────
-// Executes an MCP tool by name. Handles built-in catalog tools directly using
-// user's stored MCP credentials. Falls back to MCP SDK for custom HTTP servers.
+// Executes an MCP tool by name.
+//
+// Dispatch order:
+//   1. Built-in catalog tools — handled directly using stored credentials (mcpKeys).
+//   2. Custom MCP server tools — routed via mcpToolRoutes to callCustomMCPTool().
+//   3. Fallback — "Unknown tool" error.
+//
+// The mcpKeyById map enables credential forwarding for custom servers: the route
+// carries a serverId, which is looked up in mcpKeyById to find the Bearer token.
 
 async function executeTool(
-  toolName: string,
-  input: Record<string, unknown>,
-  mcpKeys: Record<string, string>,
+  toolName:      string,
+  input:         Record<string, unknown>,
+  mcpKeys:       Record<string, string>,
+  mcpKeyById:    Record<string, string>,
+  mcpToolRoutes: MCPRoute[],
 ): Promise<unknown> {
   try {
     // ── Brave Search ──
@@ -645,6 +719,13 @@ async function executeTool(
     if (toolName === "fetch_url" || toolName === "fetch_links") {
       const url = String(input.url ?? "");
       if (!url) return { error: "URL is required" };
+
+      // SSRF protection: validate URL before making request
+      const ssrfCheck = await validateSSRFUrl(url);
+      if (!ssrfCheck.valid) {
+        return { error: `Invalid URL: ${ssrfCheck.error}` };
+      }
+
       const res = await fetch(url, { headers: { "User-Agent": "LLM-Manager/1.0" } });
       if (!res.ok) return { error: `Fetch failed ${res.status}` };
       const text = await res.text();
@@ -668,7 +749,17 @@ async function executeTool(
       }
       if (toolName === "github_read_file") {
         const { owner, repo, path } = input as { owner: string; repo: string; path: string };
-        const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, { headers });
+
+        // Sanitize GitHub identifiers to prevent injection
+        const ownerSanitized = sanitizeGitHubIdentifier(owner);
+        const repoSanitized = sanitizeGitHubIdentifier(repo);
+        const pathSanitized = sanitizeGitHubPath(path);
+
+        if (!ownerSanitized.valid || !repoSanitized.valid || !pathSanitized.valid) {
+          return { error: "Invalid GitHub owner, repo, or path" };
+        }
+
+        const res = await fetch(`https://api.github.com/repos/${ownerSanitized.value}/${repoSanitized.value}/contents/${pathSanitized.value}`, { headers });
         const data = await res.json();
         if (data.content) {
           return { ...data, content: Buffer.from(data.content, "base64").toString("utf-8") };
@@ -750,6 +841,34 @@ async function executeTool(
     // ── Filesystem ──
     if (toolName === "read_file" || toolName === "write_file" || toolName === "list_dir") {
       return { error: "Filesystem tool requires stdio transport which is not available in serverless. Use a hosted MCP server with HTTP transport instead." };
+    }
+
+    // ── Custom MCP server routing ──
+    // If the tool name appears in mcpToolRoutes, forward the call to the
+    // registered custom MCP server via the SDK. Credentials are resolved by
+    // serverId from mcpKeyById so each server only gets its own token.
+    const route = mcpToolRoutes.find(r => r.toolName === toolName);
+    if (route) {
+      // Ownership check: serverId must be present in the user's database-loaded
+      // server map. A serverId absent from mcpKeyById means the server either
+      // doesn't exist or doesn't belong to this user.
+      if (!(route.serverId in mcpKeyById)) {
+        return { error: `Server ${route.serverId} not found or not enabled for this user` };
+      }
+
+      // SSRF protection: validate the URL before making any outbound request.
+      const ssrfCheck = await validateSSRFUrl(route.serverUrl);
+      if (!ssrfCheck.valid) {
+        return { error: `Invalid server URL: ${ssrfCheck.error}` };
+      }
+
+      const credential = mcpKeyById[route.serverId];
+      return await callCustomMCPTool({
+        serverUrl:  route.serverUrl,
+        toolName,
+        input,
+        credential,
+      });
     }
 
     return { error: `Unknown tool: ${toolName}. If this is from a custom MCP server, ensure the server has an HTTP/SSE endpoint configured.` };

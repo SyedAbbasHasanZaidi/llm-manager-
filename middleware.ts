@@ -30,6 +30,11 @@ export async function middleware(request: NextRequest) {
   const isAuthRoute  = pathname.startsWith("/auth");
   const isApiRoute   = pathname.startsWith("/api");
 
+  // Unauthenticated user trying to access API routes → reject
+  if (!user && isApiRoute) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   // Unauthenticated user trying to access a protected page → redirect to login
   if (!user && !isAuthRoute && !isApiRoute) {
     const url = request.nextUrl.clone();
